@@ -41,6 +41,7 @@ enum HeadlessRunner {
                 )
                 print("Applied \(result.changedCount) PNGs; aligned \(result.alignedCount).")
                 print("Backup: \(result.backupURL.path)")
+                print("Old images: \(result.oldImagesURL.path)")
                 return 0
             }
 

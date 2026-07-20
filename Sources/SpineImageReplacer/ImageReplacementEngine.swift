@@ -54,6 +54,7 @@ struct ApplyResult {
     let changedCount: Int
     let alignedCount: Int
     let backupURL: URL
+    let oldImagesURL: URL
 }
 
 enum ReplacementError: LocalizedError {
@@ -174,9 +175,11 @@ enum ImageReplacementEngine {
             }
         }
 
+        let oldImagesURL = try createVisibleOldImagesSnapshot(for: originalRoot)
         var manifest = BackupManifest(
             projectPath: projectURL.path,
             originalImagesPath: originalRoot.path,
+            visibleBackupPath: oldImagesURL.path,
             files: actionable.map(\.relativePath),
             createdAt: ISO8601DateFormatter().string(from: Date()),
             undoneAt: nil
@@ -206,7 +209,8 @@ enum ImageReplacementEngine {
         return ApplyResult(
             changedCount: actionable.count,
             alignedCount: actionable.filter { $0.status == .align }.count,
-            backupURL: backupURL
+            backupURL: backupURL,
+            oldImagesURL: oldImagesURL
         )
     }
 
@@ -460,6 +464,20 @@ enum ImageReplacementEngine {
         return directory
     }
 
+    private static func createVisibleOldImagesSnapshot(for originalRoot: URL) throws -> URL {
+        let source = originalRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let parent = source.deletingLastPathComponent()
+        let baseName = "\(source.lastPathComponent)_old"
+        var candidate = parent.appendingPathComponent(baseName, isDirectory: true)
+        var suffix = 2
+        while fileManager.fileExists(atPath: candidate.path) {
+            candidate = parent.appendingPathComponent("\(baseName)_\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        try fileManager.copyItem(at: source, to: candidate)
+        return candidate
+    }
+
     private static func writeManifest(_ manifest: BackupManifest, to backupURL: URL) throws {
         let data = try JSONEncoder.pretty.encode(manifest)
         try data.write(to: backupURL.appendingPathComponent("manifest.json"), options: .atomic)
@@ -564,6 +582,7 @@ private struct PixelImage {
 private struct BackupManifest: Codable {
     let projectPath: String
     let originalImagesPath: String
+    let visibleBackupPath: String?
     let files: [String]
     let createdAt: String
     var undoneAt: String?

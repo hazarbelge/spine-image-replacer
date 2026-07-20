@@ -80,14 +80,15 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         let requestID = UUID()
         detectionRequestID = requestID
         let startingRevision = projectInputRevision
-        guard let processIdentifier = SpineApplicationLocator.activeApplication?.processIdentifier else {
+        let processIdentifiers = SpineApplicationLocator.detectionProcessIdentifiers
+        guard !processIdentifiers.isEmpty else {
             handleProjectDetection(.noSpineApplication)
             return
         }
         statusLabel.stringValue = "Looking for the project open in Spine…"
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = ActiveSpineProjectDetector.detect(processIdentifier: processIdentifier)
+            let result = ActiveSpineProjectDetector.detect(processIdentifiers: processIdentifiers)
             DispatchQueue.main.async {
                 guard let self,
                       self.detectionRequestID == requestID,
@@ -107,6 +108,7 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         subtitle.textColor = .secondaryLabelColor
 
         projectPicker.onChange = { [weak self] in self?.projectDidChange() }
+        projectPicker.onDetect = { [weak self] in self?.prepareForActiveSpineProject() }
         originalPicker.onChange = { [weak self] in
             self?.inputsDidChange()
             self?.rememberCurrentImagesFolder()
@@ -350,7 +352,10 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
                 DispatchQueue.main.async {
                     self?.scanResult = refreshed
                     self?.tableView.reloadData()
-                    self?.setWorking(false, message: "Applied \(applyResult.changedCount) PNGs. Backup: \(applyResult.backupURL.path)")
+                    self?.setWorking(
+                        false,
+                        message: "Applied \(applyResult.changedCount) PNGs. Old images: \(applyResult.oldImagesURL.path)"
+                    )
                     self?.updateSummary()
                 }
             } catch {
@@ -498,6 +503,7 @@ private enum PickerMode {
 
 private final class PathPickerControl: NSView, NSTextFieldDelegate {
     var onChange: (() -> Void)?
+    var onDetect: (() -> Void)?
     var url: URL? {
         let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
@@ -520,14 +526,23 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
         field.lineBreakMode = .byTruncatingMiddle
         let choose = NSButton(title: "Choose…", target: self, action: #selector(choosePath))
         choose.bezelStyle = .rounded
+        var rowViews: [NSView] = [label, field]
+        var detectButton: NSButton?
+        if mode == .spineProject {
+            let detect = NSButton(title: "Detect", target: self, action: #selector(detectProject))
+            detect.bezelStyle = .rounded
+            rowViews.append(detect)
+            detectButton = detect
+        }
+        rowViews.append(choose)
 
-        let row = NSStackView(views: [label, field, choose])
+        let row = NSStackView(views: rowViews)
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
-        NSLayoutConstraint.activate([
+        var constraints = [
             label.widthAnchor.constraint(equalToConstant: 112),
             choose.widthAnchor.constraint(equalToConstant: 82),
             row.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -535,7 +550,11 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
             row.topAnchor.constraint(equalTo: topAnchor),
             row.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(equalToConstant: 30)
-        ])
+        ]
+        if let detectButton {
+            constraints.append(detectButton.widthAnchor.constraint(equalToConstant: 68))
+        }
+        NSLayoutConstraint.activate(constraints)
     }
 
     @available(*, unavailable)
@@ -551,6 +570,10 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
         onChange?()
+    }
+
+    @objc private func detectProject() {
+        onDetect?()
     }
 
     @objc private func choosePath() {

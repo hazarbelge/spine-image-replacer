@@ -21,10 +21,38 @@ enum SpineProjectDetectionResult {
 
 enum ActiveSpineProjectDetector {
     static func detectActiveProject() -> SpineProjectDetectionResult {
-        guard let application = SpineApplicationLocator.activeApplication else {
+        let processIdentifiers = SpineApplicationLocator.detectionProcessIdentifiers
+        guard !processIdentifiers.isEmpty else {
             return .noSpineApplication
         }
-        return detect(processIdentifier: application.processIdentifier)
+        return detect(processIdentifiers: processIdentifiers)
+    }
+
+    static func detect(processIdentifiers: [pid_t]) -> SpineProjectDetectionResult {
+        var detectedProjects: [DetectedSpineProject] = []
+        var ambiguousProjects: [URL] = []
+        for processIdentifier in processIdentifiers {
+            switch detect(processIdentifier: processIdentifier) {
+            case .detected(let project):
+                detectedProjects.append(project)
+            case .ambiguous(let projects):
+                ambiguousProjects.append(contentsOf: projects)
+            case .notFound, .noSpineApplication:
+                break
+            }
+        }
+
+        let allURLs = uniqueURLs(detectedProjects.map(\.url) + ambiguousProjects)
+        if allURLs.count > 1 {
+            return .ambiguous(allURLs)
+        }
+        if let onlyURL = allURLs.first {
+            let source = detectedProjects.first(where: {
+                $0.url.resolvingSymlinksInPath() == onlyURL.resolvingSymlinksInPath()
+            })?.source ?? .windowTitle
+            return .detected(DetectedSpineProject(url: onlyURL, source: source))
+        }
+        return .notFound
     }
 
     static func detect(processIdentifier pid: pid_t) -> SpineProjectDetectionResult {
