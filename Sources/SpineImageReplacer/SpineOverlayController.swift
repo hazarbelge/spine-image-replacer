@@ -10,13 +10,14 @@ final class SpineOverlayController {
 
     private let panel: NSPanel
     private var timer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private let onClick: () -> Void
     private let buttonTarget = ButtonTarget()
 
     init(onClick: @escaping () -> Void) {
         self.onClick = onClick
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 142, height: 38),
+            contentRect: NSRect(x: 0, y: 0, width: 44, height: 34),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -25,8 +26,9 @@ final class SpineOverlayController {
     }
 
     func start() {
+        installWorkspaceObservers()
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.20, repeats: true) { [weak self] _ in
             self?.updatePosition()
         }
         RunLoop.main.add(timer!, forMode: .common)
@@ -36,13 +38,16 @@ final class SpineOverlayController {
     func stop() {
         timer?.invalidate()
         timer = nil
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach(center.removeObserver)
+        workspaceObservers.removeAll()
         panel.orderOut(nil)
     }
 
     private func configurePanel() {
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
@@ -51,22 +56,25 @@ final class SpineOverlayController {
 
         let effect = NSVisualEffectView(frame: panel.contentView!.bounds)
         effect.autoresizingMask = [.width, .height]
-        effect.material = .hudWindow
+        effect.material = .titlebar
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 9
+        effect.layer?.cornerRadius = 7
         effect.layer?.masksToBounds = true
 
-        let button = NSButton(title: "Replace Images", target: nil, action: nil)
-        button.frame = effect.bounds.insetBy(dx: 5, dy: 4)
+        let button = NSButton(title: "", target: nil, action: nil)
+        button.frame = effect.bounds.insetBy(dx: 3, dy: 3)
         button.autoresizingMask = [.width, .height]
-        button.bezelStyle = .rounded
-        button.font = .systemFont(ofSize: 13, weight: .semibold)
-        button.image = NSImage(systemSymbolName: "photo.badge.arrow.down", accessibilityDescription: nil)
-        button.imagePosition = .imageLeading
+        button.bezelStyle = .texturedRounded
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        button.image = NSImage(
+            systemSymbolName: "photo.badge.arrow.down",
+            accessibilityDescription: "Replace Images"
+        )?.withSymbolConfiguration(symbolConfiguration)
+        button.imagePosition = .imageOnly
         button.contentTintColor = .systemOrange
-        button.toolTip = "Replace and align Spine images"
+        button.toolTip = "Replace and align Spine images (⌘⇧I)"
         buttonTarget.action = { [weak self] in self?.onClick() }
         button.target = buttonTarget
         button.action = #selector(ButtonTarget.performAction)
@@ -87,11 +95,29 @@ final class SpineOverlayController {
 
         let size = panel.frame.size
         let origin = NSPoint(
-            x: frame.maxX - size.width - 16,
-            y: frame.maxY - size.height - 10
+            x: frame.maxX - size.width - 12,
+            y: frame.maxY - size.height - 8
         )
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
+    }
+
+    private func installWorkspaceObservers() {
+        guard workspaceObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [Notification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.didDeactivateApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+            NSWorkspace.didHideApplicationNotification,
+            NSWorkspace.didUnhideApplicationNotification
+        ]
+        workspaceObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.updatePosition()
+            }
+        }
     }
 
     private func largestWindowBounds(for pid: pid_t) -> CGRect? {

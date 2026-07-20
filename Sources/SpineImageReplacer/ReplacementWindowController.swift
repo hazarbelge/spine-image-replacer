@@ -1,7 +1,8 @@
 import AppKit
 import UniformTypeIdentifiers
 
-final class ReplacementWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class ReplacementWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
+    var onClose: (() -> Void)?
     private let projectPicker = PathPickerControl(
         title: "Spine project",
         placeholder: "Choose or drop a .spine project",
@@ -43,6 +44,7 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         window.minSize = NSSize(width: 760, height: 650)
         window.center()
         super.init(window: window)
+        window.delegate = self
         configureUI()
     }
 
@@ -74,6 +76,10 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         updatePreview()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose?()
     }
 
     func prepareForActiveSpineProject() {
