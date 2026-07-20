@@ -2,3 +2,4 @@
 .build/
 .idea/
 dist/
+/replace_image_demo
