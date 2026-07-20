@@ -4,17 +4,17 @@ import UniformTypeIdentifiers
 final class ReplacementWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
     private let projectPicker = PathPickerControl(
         title: "Spine project",
-        placeholder: "Choose a .spine project",
+        placeholder: "Choose or drop a .spine project",
         mode: .spineProject
     )
     private let originalPicker = PathPickerControl(
         title: "Current images",
-        placeholder: "Choose the live images folder",
+        placeholder: "Choose or drop the live images folder",
         mode: .folder
     )
     private let replacementPicker = PathPickerControl(
         title: "New images",
-        placeholder: "Choose the replacement images folder",
+        placeholder: "Choose or drop the replacement images folder",
         mode: .folder
     )
     private let scanButton = NSButton(title: "Scan Images", target: nil, action: nil)
@@ -512,11 +512,24 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
 
     private let field = NSTextField()
     private let mode: PickerMode
+    private var isDragHighlighted = false {
+        didSet {
+            guard oldValue != isDragHighlighted else { return }
+            layer?.borderWidth = isDragHighlighted ? 2 : 0
+            layer?.borderColor = isDragHighlighted ? NSColor.controlAccentColor.cgColor : nil
+            layer?.backgroundColor = isDragHighlighted
+                ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+                : nil
+        }
+    }
 
     init(title: String, placeholder: String, mode: PickerMode) {
         self.mode = mode
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        registerForDraggedTypes([.fileURL])
 
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 13, weight: .medium)
@@ -570,6 +583,62 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
         onChange?()
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        updateDragState(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        updateDragState(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDragHighlighted = false
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        isDragHighlighted = false
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        droppedURL(from: sender) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { isDragHighlighted = false }
+        guard let droppedURL = droppedURL(from: sender) else { return false }
+        field.stringValue = droppedURL.path
+        onChange?()
+        return true
+    }
+
+    private func updateDragState(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let acceptsDrop = droppedURL(from: sender) != nil
+        isDragHighlighted = acceptsDrop
+        return acceptsDrop ? .copy : []
+    }
+
+    private func droppedURL(from sender: NSDraggingInfo) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true
+        ]
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: options
+        ) as? [URL], urls.count == 1 else { return nil }
+
+        let url = urls[0].standardizedFileURL.resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        switch mode {
+        case .spineProject:
+            return !isDirectory.boolValue && url.pathExtension.lowercased() == "spine" ? url : nil
+        case .folder:
+            return isDirectory.boolValue ? url : nil
+        }
     }
 
     @objc private func detectProject() {
