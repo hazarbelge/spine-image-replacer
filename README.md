@@ -6,7 +6,7 @@ A native macOS companion for Spine 4.2. It visually attaches a **Replace Images*
 
 1. Open Spine 4.2 and launch **Spine Image Replacer**.
 2. Click the attached **Replace Images** button in the top-right of the Spine window.
-3. Choose the `.spine` project, its current loose PNG folder, and the folder containing new PNGs.
+3. The open `.spine` project is selected automatically when macOS can identify it. Otherwise, choose it manually. Then choose its current loose PNG folder and the folder containing new PNGs.
 4. Click **Scan Images** and review every result and preview.
 5. Click **Apply with Backup**. The live PNG folder is updated atomically, so Spine reloads it.
 6. Use **Undo Last Replacement** if the artwork needs to be restored.
@@ -14,6 +14,8 @@ A native macOS companion for Spine 4.2. It visually attaches a **Replace Images*
 Replacement PNGs are matched by exact relative path. The tool preserves the original canvas and automatically moves replacement artwork back to the original non-transparent bounds. It never scales changed artwork silently; different visible dimensions are blocked.
 
 Backups are stored beside the `.spine` project under `.spine-image-replacer-backups/`.
+
+The companion remembers the current-images folder for each project. Project detection uses the active Spine process, its open files, and its window title. When detection is unavailable or ambiguous, the project picker remains available and nothing is guessed.
 
 ## Build
 

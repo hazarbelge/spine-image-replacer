@@ -76,7 +76,7 @@ final class SpineOverlayController {
 
     private func updatePosition() {
         guard isEnabled,
-              let spine = NSWorkspace.shared.runningApplications.first(where: Self.isSpineApplication),
+              let spine = SpineApplicationLocator.activeApplication,
               spine.isActive,
               let windowBounds = largestWindowBounds(for: spine.processIdentifier),
               let frame = appKitFrame(for: windowBounds)
@@ -92,16 +92,6 @@ final class SpineOverlayController {
         )
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
-    }
-
-    private static func isSpineApplication(_ application: NSRunningApplication) -> Bool {
-        let name = application.localizedName?.lowercased() ?? ""
-        let bundleName = application.bundleURL?.deletingPathExtension().lastPathComponent.lowercased() ?? ""
-        let identifier = application.bundleIdentifier?.lowercased() ?? ""
-        let knownNames: Set<String> = ["spine", "spine trial", "spinetrial"]
-        return knownNames.contains(name)
-            || knownNames.contains(bundleName)
-            || identifier.contains("esotericsoftware.spine")
     }
 
     private func largestWindowBounds(for pid: pid_t) -> CGRect? {

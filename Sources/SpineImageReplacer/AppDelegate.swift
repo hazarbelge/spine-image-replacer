@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showReplacementWindow() {
+        windowController.prepareForActiveSpineProject()
         windowController.showWindow(nil)
         windowController.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

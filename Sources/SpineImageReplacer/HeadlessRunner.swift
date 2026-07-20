@@ -3,6 +3,27 @@ import Foundation
 enum HeadlessRunner {
     static func run(arguments: [String]) -> Int32 {
         do {
+            if arguments.contains("--headless-detect-project") {
+                let value = try requiredValue("--pid", arguments: arguments)
+                guard let pid = Int32(value) else {
+                    throw NSError(
+                        domain: "SpineImageReplacer",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Invalid --pid value"]
+                    )
+                }
+                switch ActiveSpineProjectDetector.detect(processIdentifier: pid) {
+                case .detected(let project):
+                    print("Detected: \(project.url.path) (\(project.source.rawValue))")
+                    return 0
+                case .ambiguous(let projects):
+                    print("Ambiguous: \(projects.map(\.path).joined(separator: ", "))")
+                    return 2
+                case .notFound, .noSpineApplication:
+                    print("No project detected.")
+                    return 3
+                }
+            }
             if arguments.contains("--headless-undo") {
                 let project = try requiredURL("--project", arguments: arguments, directory: false)
                 let backup = try ImageReplacementEngine.undoLast(projectURL: project)
@@ -48,6 +69,11 @@ enum HeadlessRunner {
         arguments: [String],
         directory: Bool
     ) throws -> URL {
+        let value = try requiredValue(flag, arguments: arguments)
+        return URL(fileURLWithPath: value, isDirectory: directory).standardizedFileURL
+    }
+
+    private static func requiredValue(_ flag: String, arguments: [String]) throws -> String {
         guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
             throw NSError(
                 domain: "SpineImageReplacer",
@@ -55,6 +81,6 @@ enum HeadlessRunner {
                 userInfo: [NSLocalizedDescriptionKey: "Missing \(flag)"]
             )
         }
-        return URL(fileURLWithPath: arguments[index + 1], isDirectory: directory).standardizedFileURL
+        return arguments[index + 1]
     }
 }

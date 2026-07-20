@@ -28,6 +28,9 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
     private let replacementPreview = PreviewPane(title: "Replacement after alignment")
     private var scanResult: ScanResult?
     private var isWorking = false
+    private var projectInputRevision = 0
+    private var detectionRequestID = UUID()
+    private let imagesFoldersDefaultsKey = "imagesFoldersByProject"
 
     init() {
         let window = NSWindow(
@@ -73,6 +76,28 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         updatePreview()
     }
 
+    func prepareForActiveSpineProject() {
+        let requestID = UUID()
+        detectionRequestID = requestID
+        let startingRevision = projectInputRevision
+        guard let processIdentifier = SpineApplicationLocator.activeApplication?.processIdentifier else {
+            handleProjectDetection(.noSpineApplication)
+            return
+        }
+        statusLabel.stringValue = "Looking for the project open in Spine…"
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = ActiveSpineProjectDetector.detect(processIdentifier: processIdentifier)
+            DispatchQueue.main.async {
+                guard let self,
+                      self.detectionRequestID == requestID,
+                      self.projectInputRevision == startingRevision
+                else { return }
+                self.handleProjectDetection(result)
+            }
+        }
+    }
+
     private func configureUI() {
         guard let contentView = window?.contentView else { return }
 
@@ -81,9 +106,12 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         let subtitle = NSTextField(wrappingLabelWithString: "The attached Spine button opens this panel. Apply creates a backup first, then updates the live PNG folder so Spine 4.2 reloads it.")
         subtitle.textColor = .secondaryLabelColor
 
-        [projectPicker, originalPicker, replacementPicker].forEach { picker in
-            picker.onChange = { [weak self] in self?.inputsDidChange() }
+        projectPicker.onChange = { [weak self] in self?.projectDidChange() }
+        originalPicker.onChange = { [weak self] in
+            self?.inputsDidChange()
+            self?.rememberCurrentImagesFolder()
         }
+        replacementPicker.onChange = { [weak self] in self?.inputsDidChange() }
 
         scanButton.target = self
         scanButton.action = #selector(scanImages)
@@ -203,6 +231,82 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
         summaryLabel.stringValue = "Inputs changed. Scan again before applying."
     }
 
+    private func projectDidChange() {
+        projectInputRevision += 1
+        inputsDidChange()
+        guard let project = validProjectURL(projectPicker.url) else { return }
+        restoreCurrentImagesFolder(for: project, clearWhenMissing: false)
+    }
+
+    private func handleProjectDetection(_ result: SpineProjectDetectionResult) {
+        switch result {
+        case .detected(let project):
+            let previousProject = validProjectURL(projectPicker.url)
+            let changedProject = previousProject?.resolvingSymlinksInPath() != project.url.resolvingSymlinksInPath()
+            projectPicker.setURL(project.url)
+            if changedProject {
+                restoreCurrentImagesFolder(for: project.url, clearWhenMissing: true)
+                replacementPicker.clear()
+                inputsDidChange()
+                summaryLabel.stringValue = originalPicker.url == nil
+                    ? "Project detected. Choose the current and new images folders, then scan."
+                    : "Project and current images detected. Choose the new images folder, then scan."
+            }
+            statusLabel.stringValue = "Detected open project: \(project.url.lastPathComponent) (\(project.source.rawValue))."
+        case .ambiguous:
+            statusLabel.stringValue = "More than one open .spine project was found. Choose the project manually."
+        case .notFound:
+            statusLabel.stringValue = "The open Spine project could not be identified. Choose it manually."
+        case .noSpineApplication:
+            statusLabel.stringValue = "Open a Spine project, or choose the .spine file manually."
+        }
+    }
+
+    private func validProjectURL(_ url: URL?) -> URL? {
+        guard let url, url.pathExtension.lowercased() == "spine" else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue
+        else { return nil }
+        return url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private func rememberCurrentImagesFolder() {
+        guard let project = validProjectURL(projectPicker.url),
+              let images = originalPicker.url
+        else { return }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: images.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return }
+
+        var folders = UserDefaults.standard.dictionary(forKey: imagesFoldersDefaultsKey) as? [String: String] ?? [:]
+        folders[project.path] = images.standardizedFileURL.resolvingSymlinksInPath().path
+        UserDefaults.standard.set(folders, forKey: imagesFoldersDefaultsKey)
+    }
+
+    private func restoreCurrentImagesFolder(for project: URL, clearWhenMissing: Bool) {
+        let folders = UserDefaults.standard.dictionary(forKey: imagesFoldersDefaultsKey) as? [String: String] ?? [:]
+        if let storedPath = folders[project.resolvingSymlinksInPath().path] {
+            let storedURL = URL(fileURLWithPath: storedPath, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: storedURL.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                originalPicker.setURL(storedURL)
+                return
+            }
+        }
+
+        let conventionalImages = project.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: conventionalImages.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            originalPicker.setURL(conventionalImages)
+        } else if clearWhenMissing {
+            originalPicker.clear()
+        }
+    }
+
     @objc private func scanImages() {
         guard let inputs = validatedInputs(requireProject: false) else { return }
         setWorking(true, message: "Scanning PNGs…")
@@ -289,10 +393,7 @@ final class ReplacementWindowController: NSWindowController, NSTableViewDataSour
             showErrorMessage("Choose a .spine project first.")
             return
         }
-        if let spine = NSWorkspace.shared.runningApplications.first(where: {
-            $0.localizedName?.lowercased() == "spine" ||
-            ($0.bundleIdentifier?.lowercased().contains("esotericsoftware.spine") ?? false)
-        }), let appURL = spine.bundleURL {
+        if let spine = SpineApplicationLocator.activeApplication, let appURL = spine.bundleURL {
             NSWorkspace.shared.open(
                 [project],
                 withApplicationAt: appURL,
@@ -439,6 +540,14 @@ private final class PathPickerControl: NSView, NSTextFieldDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    func setURL(_ url: URL) {
+        field.stringValue = url.standardizedFileURL.path
+    }
+
+    func clear() {
+        field.stringValue = ""
+    }
 
     func controlTextDidChange(_ obj: Notification) {
         onChange?()
