@@ -4,7 +4,7 @@ A native macOS companion for Spine 4.2. It visually attaches a compact image-rep
 
 ## Animator workflow
 
-1. Move **Spine Image Replacer** to Applications and open it once. Enable **Launch at Login** when prompted if you want it to stay ready automatically.
+1. Open **Spine Image Replacer**. On first launch, click **Move to Applications**; the app installs and reopens itself. Enable **Launch at Login** when prompted if you want it to stay ready automatically.
 2. Open Spine 4.2. Click the compact image button in the top-right of the Spine window, or press **Command-Shift-I**.
 3. The open `.spine` project is selected automatically when macOS can identify it. Click **Detect** to retry, use **Choose…**, or drag the `.spine` file from Finder onto the project row. Drag the current loose PNG folder and new-images folder onto their rows, or choose them normally.
 4. Click **Scan Images** and review every result and preview.
@@ -34,7 +34,7 @@ The script creates:
 - `dist/Spine Image Replacer.app`
 - `dist/Spine Image Replacer.zip`
 
-The zip preserves the executable permission, so colleagues do not need to run `chmod`. The local build is ad-hoc signed. For frictionless studio distribution, sign and notarize it with the studio's Apple Developer ID. Otherwise, animators can right-click the app and choose **Open** the first time macOS asks for confirmation.
+The zip preserves the executable permission, so colleagues do not need to run `chmod`. On first launch outside Applications, the app offers to move itself there. The local build is ad-hoc signed. For frictionless studio distribution, sign and notarize it with the studio's Apple Developer ID. Otherwise, animators can right-click the app and choose **Open** the first time macOS asks for confirmation.
 
 ## Boundary
 

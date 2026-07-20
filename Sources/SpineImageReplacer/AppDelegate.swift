@@ -6,9 +6,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayController: SpineOverlayController!
     private var hotKeyController: GlobalHotKeyController!
     private let loginItemController = LoginItemController()
+    private let applicationMover = ApplicationMover()
     private var attachMenuItem: NSMenuItem!
     private var launchAtLoginMenuItem: NSMenuItem!
     private var workspaceObservers: [NSObjectProtocol] = []
+    private let movePromptDefaultsKey = "hasAskedToMoveToApplications"
     private let launchPromptDefaultsKey = "hasAskedToLaunchAtLogin"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -27,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installHotKeyLifecycleObservers()
         updateHotKeyRegistration()
         configureStatusItem()
+        if offerMoveToApplicationsIfNeeded() { return }
         offerLaunchAtLoginIfNeeded()
     }
 
@@ -92,10 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLaunchAtLogin() {
         guard loginItemController.isInstalledApplication else {
-            showLoginItemAlert(
-                message: "Move Spine Image Replacer to Applications first.",
-                information: "macOS can launch the companion automatically after it is placed in /Applications or your user Applications folder."
-            )
+            _ = offerMoveToApplicationsIfNeeded(force: true)
             return
         }
         do {
@@ -111,6 +111,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 loginItemController.openSettings()
             }
             refreshLaunchAtLoginMenuItem()
+        }
+    }
+
+    @discardableResult
+    private func offerMoveToApplicationsIfNeeded(force: Bool = false) -> Bool {
+        let defaults = UserDefaults.standard
+        guard !loginItemController.isInstalledApplication,
+              force || !defaults.bool(forKey: movePromptDefaultsKey)
+        else { return false }
+        defaults.set(true, forKey: movePromptDefaultsKey)
+
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Move Spine Image Replacer to Applications?"
+        alert.informativeText = applicationMover.destinationExists
+            ? "An existing copy in Applications will be replaced. The installed app can launch at login and stay ready whenever Spine is open."
+            : "The installed app can launch at login and stay ready whenever Spine is open. It will reopen from \(applicationMover.destinationURL.deletingLastPathComponent().path)."
+        alert.addButton(withTitle: applicationMover.destinationExists ? "Replace in Applications" : "Move to Applications")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+        do {
+            let installedURL = try applicationMover.installCurrentApplication()
+            applicationMover.relaunchInstalledApplication(at: installedURL) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.applicationMover.trashOriginalApplicationIfPossible(installedURL: installedURL)
+                        NSApp.terminate(nil)
+                    case .failure(let error):
+                        self.showLoginItemAlert(
+                            message: "The installed app could not be opened.",
+                            information: error.localizedDescription
+                        )
+                    }
+                }
+            }
+            return true
+        } catch {
+            showLoginItemAlert(
+                message: "Spine Image Replacer could not be moved.",
+                information: error.localizedDescription
+            )
+            return false
         }
     }
 
